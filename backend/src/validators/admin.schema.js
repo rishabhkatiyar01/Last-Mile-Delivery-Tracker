@@ -16,11 +16,13 @@ const updateZonePincodes = {
 const createRateCard = {
   body: Joi.object().keys({
     orderType: Joi.string().valid('B2B', 'B2C').required(),
-    zoneRelation: Joi.string().valid('intra', 'inter').required(),
+    fromZone: Joi.string().hex().length(24).allow(null),
+    toZone: Joi.string().hex().length(24).allow(null),
+    isDefaultFallback: Joi.boolean(),
     baseRate: Joi.number().required(),
     perKgRate: Joi.number().required(),
-    codSurchargeFlat: Joi.number(),
-    codSurchargePercent: Joi.number(),
+    codSurchargeFlat: Joi.number().allow(0),
+    codSurchargePercent: Joi.number().allow(0),
     isActive: Joi.boolean(),
   }),
 };

@@ -2,7 +2,7 @@ import { useState, useContext, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { getOrders, assignAgent, autoAssignAgent, overrideStatus } from '../api/orders';
-import { getZones, createZone, deleteZone, getRateCards, createRateCard, getAgents, createAgent, getCustomers, createCustomer } from '../api/admin';
+import { getZones, createZone, deleteZone, getRateCards, createRateCard, updateRateCard, deleteRateCard, getAgents, createAgent, getCustomers, createCustomer } from '../api/admin';
 
 const ALL_STATUSES = ['CREATED', 'ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED', 'FAILED', 'RESCHEDULED'];
 
@@ -217,7 +217,10 @@ export default function AdminDashboard() {
 
   // Zone / Rate card forms
   const [zoneForm, setZoneForm] = useState({ name: '', pincodes: '' });
-  const [rateForm, setRateForm] = useState({ orderType: 'B2C', zoneRelation: 'intra', baseRate: '', perKgRate: '', codSurchargeFlat: '0', codSurchargePercent: '0' });
+  const [rateForm, setRateForm] = useState({ orderType: 'B2C', fromZone: '', toZone: '', isDefaultFallback: false, baseRate: '', perKgRate: '', codSurchargeFlat: '0', codSurchargePercent: '0' });
+  const [rateCardError, setRateCardError] = useState('');
+  const [rateFilterOrderType, setRateFilterOrderType] = useState('all');
+  const [rateFilterFromZone, setRateFilterFromZone] = useState('all');
 
   const loadData = () => {
     setLoading(true);
@@ -294,20 +297,39 @@ export default function AdminDashboard() {
   // Rate cards
   const handleCreateRateCard = async (e) => {
     e.preventDefault();
+    setRateCardError('');
+    if (!rateForm.isDefaultFallback && (!rateForm.fromZone || !rateForm.toZone)) {
+      setRateCardError('Please select both From Zone and To Zone, or mark as Default Fallback.');
+      return;
+    }
     try {
       await createRateCard({
         orderType: rateForm.orderType,
-        zoneRelation: rateForm.zoneRelation,
+        fromZone: rateForm.isDefaultFallback ? null : rateForm.fromZone,
+        toZone: rateForm.isDefaultFallback ? null : rateForm.toZone,
+        isDefaultFallback: rateForm.isDefaultFallback,
         baseRate: parseFloat(rateForm.baseRate),
         perKgRate: parseFloat(rateForm.perKgRate),
         codSurchargeFlat: parseFloat(rateForm.codSurchargeFlat) || 0,
         codSurchargePercent: parseFloat(rateForm.codSurchargePercent) || 0,
       });
-      setRateForm({ orderType: 'B2C', zoneRelation: 'intra', baseRate: '', perKgRate: '', codSurchargeFlat: '0', codSurchargePercent: '0' });
+      setRateForm({ orderType: 'B2C', fromZone: '', toZone: '', isDefaultFallback: false, baseRate: '', perKgRate: '', codSurchargeFlat: '0', codSurchargePercent: '0' });
+      setRateCardError('');
       loadData();
       showSuccess('Rate card created!');
     } catch (err) {
-      alert(err?.response?.data?.message || 'Failed to create rate card.');
+      setRateCardError(err?.response?.data?.message || 'Failed to create rate card.');
+    }
+  };
+
+  const handleDeleteRateCard = async (id) => {
+    if (!confirm('Delete this rate card?')) return;
+    try {
+      await deleteRateCard(id);
+      loadData();
+      showSuccess('Rate card deleted.');
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Failed to delete rate card.');
     }
   };
 
@@ -588,63 +610,161 @@ export default function AdminDashboard() {
 
             {/* ── TAB: RATE CARDS ────────────────────────────────────────── */}
             {activeTab === 'rateCards' && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 space-y-4">
-                  <h2 className="text-headline-md font-bold text-primary">Configured Rate Cards</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {rateCards.length === 0 ? <p className="text-text-muted">No rate cards configured yet.</p> : rateCards.map((card) => (
-                      <div key={card._id} className="bg-background-main rounded-2xl p-6 border border-outline-variant/30 shadow-sm space-y-3">
-                        <div className="flex justify-between items-center">
-                          <span className="px-3 py-1 bg-primary/10 text-primary text-[11px] font-bold rounded-full uppercase">{card.orderType}</span>
-                          <span className="px-3 py-1 bg-accent-lime/20 text-primary text-[11px] font-bold rounded-full uppercase">{card.zoneRelation}</span>
-                        </div>
-                        <div className="space-y-1.5 pt-3 text-body-md text-primary">
-                          <div className="flex justify-between"><span>Base Rate:</span><span className="font-bold">₹{card.baseRate}</span></div>
-                          <div className="flex justify-between"><span>Per Kg Rate:</span><span className="font-bold">₹{card.perKgRate}</span></div>
-                          <div className="flex justify-between"><span>COD Flat:</span><span className="font-bold">₹{card.codSurchargeFlat || 0}</span></div>
-                          <div className="flex justify-between"><span>COD %:</span><span className="font-bold">{card.codSurchargePercent || 0}%</span></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="bg-background-main rounded-2xl p-6 border border-outline-variant/30 shadow-sm h-fit">
-                  <h3 className="font-bold text-headline-sm text-primary mb-6">Create Rate Card</h3>
-                  <form onSubmit={handleCreateRateCard} className="space-y-4">
-                    <div>
-                      <label className="block text-label-md text-primary mb-1">Order Type</label>
-                      <select value={rateForm.orderType} onChange={(e) => setRateForm({ ...rateForm, orderType: e.target.value })} className={inputCls}>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+                {/* Left: List + filters */}
+                <div className="lg:col-span-7 space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-headline-md font-bold text-primary">Rate Cards</h2>
+                    <div className="flex gap-2 items-center flex-wrap">
+                      <select value={rateFilterOrderType} onChange={(e) => setRateFilterOrderType(e.target.value)} className="px-3 py-1.5 border border-outline-variant rounded-xl bg-white text-body-sm outline-none focus:border-accent-lime">
+                        <option value="all">All Types</option>
                         <option value="B2B">B2B</option>
                         <option value="B2C">B2C</option>
                       </select>
-                    </div>
-                    <div>
-                      <label className="block text-label-md text-primary mb-1">Zone Relation</label>
-                      <select value={rateForm.zoneRelation} onChange={(e) => setRateForm({ ...rateForm, zoneRelation: e.target.value })} className={inputCls}>
-                        <option value="intra">Intra-Zone</option>
-                        <option value="inter">Inter-Zone</option>
+                      <select value={rateFilterFromZone} onChange={(e) => setRateFilterFromZone(e.target.value)} className="px-3 py-1.5 border border-outline-variant rounded-xl bg-white text-body-sm outline-none focus:border-accent-lime">
+                        <option value="all">All From Zones</option>
+                        {zones.map(z => <option key={z._id} value={z._id}>{z.name}</option>)}
                       </select>
                     </div>
-                    <div>
-                      <label className="block text-label-md text-primary mb-1">Base Rate (₹)</label>
-                      <input type="number" required value={rateForm.baseRate} onChange={(e) => setRateForm({ ...rateForm, baseRate: e.target.value })} className={inputCls} placeholder="e.g. 50" />
+                  </div>
+
+                  {/* Table */}
+                  <div className="bg-background-main rounded-[20px] shadow-[0px_4px_20px_rgba(10,22,40,0.08)] overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-surface-container-low/50">
+                            {['Type', 'From Zone', 'To Zone', 'Base', '/kg', 'COD', ''].map(h => (
+                              <th key={h} className="px-4 py-3 text-label-sm text-on-surface-variant font-bold border-b border-outline-variant/30 whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-outline-variant/10">
+                          {rateCards
+                            .filter(c => rateFilterOrderType === 'all' || c.orderType === rateFilterOrderType)
+                            .filter(c => rateFilterFromZone === 'all' || (c.fromZone?._id || c.fromZone) === rateFilterFromZone)
+                            .length === 0 ? (
+                              <tr><td colSpan={7} className="text-center py-10 text-text-muted">No rate cards configured yet.</td></tr>
+                            ) : rateCards
+                            .filter(c => rateFilterOrderType === 'all' || c.orderType === rateFilterOrderType)
+                            .filter(c => rateFilterFromZone === 'all' || (c.fromZone?._id || c.fromZone) === rateFilterFromZone)
+                            .map((card) => (
+                              <tr key={card._id} className="hover:bg-surface-container-low transition-colors">
+                                <td className="px-4 py-3">
+                                  <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-black rounded uppercase">{card.orderType}</span>
+                                </td>
+                                <td className="px-4 py-3 text-body-sm font-bold text-primary">
+                                  {card.isDefaultFallback ? <span className="text-warning-amber italic">Default</span> : (card.fromZone?.name || '—')}
+                                </td>
+                                <td className="px-4 py-3 text-body-sm text-primary">
+                                  {card.isDefaultFallback ? <span className="text-warning-amber italic">Fallback</span> : (card.toZone?.name || '—')}
+                                </td>
+                                <td className="px-4 py-3 text-body-sm">₹{card.baseRate}</td>
+                                <td className="px-4 py-3 text-body-sm">₹{card.perKgRate}</td>
+                                <td className="px-4 py-3 text-body-sm">
+                                  {card.codSurchargeFlat ? `₹${card.codSurchargeFlat}` : card.codSurchargePercent ? `${card.codSurchargePercent}%` : '—'}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <button onClick={() => handleDeleteRateCard(card._id)} className="text-error hover:underline text-label-sm font-bold flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-[14px]">delete</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
                     </div>
-                    <div>
-                      <label className="block text-label-md text-primary mb-1">Per Kg Surcharge (₹)</label>
-                      <input type="number" required value={rateForm.perKgRate} onChange={(e) => setRateForm({ ...rateForm, perKgRate: e.target.value })} className={inputCls} placeholder="e.g. 10" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
+                  </div>
+                </div>
+
+                {/* Right: Create form */}
+                <div className="lg:col-span-5">
+                  <div className="bg-background-main rounded-2xl p-6 border border-outline-variant/30 shadow-sm">
+                    <h3 className="font-bold text-headline-sm text-primary mb-5">Add Rate Card</h3>
+
+                    {rateCardError && (
+                      <div className="mb-4 p-3 rounded-xl bg-error-container text-error text-body-sm font-bold border border-error/20">{rateCardError}</div>
+                    )}
+
+                    <form onSubmit={handleCreateRateCard} className="space-y-4">
                       <div>
-                        <label className="block text-label-sm text-primary mb-1">COD Flat (₹)</label>
-                        <input type="number" value={rateForm.codSurchargeFlat} onChange={(e) => setRateForm({ ...rateForm, codSurchargeFlat: e.target.value })} className={inputCls} />
+                        <label className="block text-label-md text-primary mb-1">Order Type</label>
+                        <select value={rateForm.orderType} onChange={(e) => setRateForm({ ...rateForm, orderType: e.target.value })} className={inputCls}>
+                          <option value="B2C">B2C (Business to Consumer)</option>
+                          <option value="B2B">B2B (Business to Business)</option>
+                        </select>
                       </div>
-                      <div>
-                        <label className="block text-label-sm text-primary mb-1">COD % </label>
-                        <input type="number" value={rateForm.codSurchargePercent} onChange={(e) => setRateForm({ ...rateForm, codSurchargePercent: e.target.value })} className={inputCls} />
+
+                      {/* Default fallback toggle */}
+                      <div className="flex items-center gap-3 p-3 bg-warning-amber/5 rounded-xl border border-warning-amber/20">
+                        <input
+                          id="fallback-toggle"
+                          type="checkbox"
+                          checked={rateForm.isDefaultFallback}
+                          onChange={(e) => setRateForm({ ...rateForm, isDefaultFallback: e.target.checked, fromZone: '', toZone: '' })}
+                          className="w-4 h-4 accent-warning-amber"
+                        />
+                        <label htmlFor="fallback-toggle" className="text-label-sm text-primary cursor-pointer flex-1">
+                          <span className="font-bold">Default Fallback</span>
+                          <p className="text-text-muted text-[11px] mt-0.5">Used when no specific zone-pair rate is found</p>
+                        </label>
                       </div>
-                    </div>
-                    <button type="submit" className="w-full py-3 bg-accent-lime text-primary font-bold rounded-full">Save Rate Card</button>
-                  </form>
+
+                      {!rateForm.isDefaultFallback && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-label-md text-primary mb-1">From Zone</label>
+                            <select value={rateForm.fromZone} onChange={(e) => setRateForm({ ...rateForm, fromZone: e.target.value })} className={inputCls}>
+                              <option value="">Select zone...</option>
+                              {zones.map(z => <option key={z._id} value={z._id}>{z.name}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-label-md text-primary mb-1">To Zone</label>
+                            <select value={rateForm.toZone} onChange={(e) => setRateForm({ ...rateForm, toZone: e.target.value })} className={inputCls}>
+                              <option value="">Select zone...</option>
+                              {zones.map(z => <option key={z._id} value={z._id}>{z.name}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      {!rateForm.isDefaultFallback && rateForm.fromZone && rateForm.toZone && (
+                        <div className="px-3 py-2 bg-accent-lime/10 rounded-xl border border-accent-lime/30 text-body-sm text-primary">
+                          <span className="font-bold">{zones.find(z => z._id === rateForm.fromZone)?.name}</span>
+                          <span className="material-symbols-outlined text-[16px] mx-1 align-middle">arrow_forward</span>
+                          <span className="font-bold">{zones.find(z => z._id === rateForm.toZone)?.name}</span>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-label-md text-primary mb-1">Base Rate (₹)</label>
+                          <input type="number" min="0" required value={rateForm.baseRate} onChange={(e) => setRateForm({ ...rateForm, baseRate: e.target.value })} className={inputCls} placeholder="e.g. 50" />
+                        </div>
+                        <div>
+                          <label className="block text-label-md text-primary mb-1">Per Kg (₹)</label>
+                          <input type="number" min="0" required value={rateForm.perKgRate} onChange={(e) => setRateForm({ ...rateForm, perKgRate: e.target.value })} className={inputCls} placeholder="e.g. 10" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-label-sm text-primary mb-1">COD Flat (₹)</label>
+                          <input type="number" min="0" value={rateForm.codSurchargeFlat} onChange={(e) => setRateForm({ ...rateForm, codSurchargeFlat: e.target.value })} className={inputCls} placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="block text-label-sm text-primary mb-1">COD %</label>
+                          <input type="number" min="0" value={rateForm.codSurchargePercent} onChange={(e) => setRateForm({ ...rateForm, codSurchargePercent: e.target.value })} className={inputCls} placeholder="0" />
+                        </div>
+                      </div>
+
+                      <button type="submit" className="w-full py-3 bg-accent-lime text-primary font-bold rounded-full hover:opacity-90 transition-all">
+                        Save Rate Card
+                      </button>
+                    </form>
+                  </div>
                 </div>
               </div>
             )}

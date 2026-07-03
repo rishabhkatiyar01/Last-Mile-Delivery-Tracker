@@ -347,11 +347,27 @@ Replaces zone pincodes.
 
 `POST /admin/rate-cards`
 
+Creates a specific zone-pair rate card:
+
 ```json
 {
   "orderType": "B2C",
-  "zoneRelation": "intra",
-  "baseRate": 50,
+  "fromZone": "64f000000000000000000001",
+  "toZone": "64f000000000000000000002",
+  "baseRate": 80,
+  "perKgRate": 15,
+  "codSurchargeFlat": 20,
+  "isActive": true
+}
+```
+
+To create a **default fallback** rate card used when no specific zone-pair match exists:
+
+```json
+{
+  "orderType": "B2C",
+  "isDefaultFallback": true,
+  "baseRate": 100,
   "perKgRate": 20,
   "codSurchargeFlat": 25,
   "isActive": true
@@ -360,7 +376,9 @@ Replaces zone pincodes.
 
 `GET /admin/rate-cards`
 
-Lists rate cards.
+Lists all rate cards with populated `fromZone` and `toZone` names.
+
+Supports an optional `?matrix=true&orderType=B2C` query to return all zones and a list of configured zone pairs (useful for building a coverage grid in the admin UI).
 
 `PUT /admin/rate-cards/:id`
 
@@ -481,9 +499,13 @@ createdAt, updatedAt
 
 ### RateCard
 
+Each rate card is keyed by a specific zone pair. A special "default fallback" entry is used when no exact pair is configured.
+
 ```text
 orderType: "B2B" | "B2C", required
-zoneRelation: "intra" | "inter", required
+fromZone: ObjectId -> Zone, null when isDefaultFallback is true
+toZone: ObjectId -> Zone, null when isDefaultFallback is true
+isDefaultFallback: Boolean, default false
 baseRate: Number, required
 perKgRate: Number, required
 codSurchargeFlat: Number
@@ -493,7 +515,7 @@ createdAt, updatedAt
 ```
 
 Indexes:
-- Unique compound index on `orderType`, `zoneRelation`, and `isActive`.
+- Unique compound index on `orderType`, `fromZone`, and `toZone` — prevents duplicate rate cards for the same zone pair.
 
 ### Order
 
@@ -511,7 +533,6 @@ orderType: "B2B" | "B2C", required
 paymentType: "Prepaid" | "COD", required
 pickupZone: ObjectId -> Zone
 dropZone: ObjectId -> Zone
-zoneRelation: "intra" | "inter"
 charge: { baseCharge, weightCharge, codSurcharge, totalCharge }
 assignedAgent: ObjectId -> User
 currentStatus: CREATED | ASSIGNED | PICKED_UP | IN_TRANSIT | OUT_FOR_DELIVERY | DELIVERED | FAILED | RESCHEDULED
@@ -551,7 +572,7 @@ paymentType: Prepaid | COD
 Calculation steps:
 
 1. Find the pickup and drop zones by matching `pickupPincode` and `dropPincode` against `Zone.pincodes`.
-2. Reject the request if either pincode is not mapped to a zone.
+2. Reject the request with a 400 error if either pincode is not mapped to a zone.
 3. Calculate volumetric weight:
 
 ```text
@@ -564,22 +585,24 @@ volumetricWeight = (length * breadth * height) / 5000
 billedWeight = max(actualWeight, volumetricWeight)
 ```
 
-5. Determine zone relation:
+5. **Zone-pair rate lookup** — look up a `RateCard` matching exactly `{ orderType, fromZone: pickupZone._id, toZone: dropZone._id, isActive: true }`.
+
+6. **Fallback** — if no exact match exists, look up a default fallback rate card matching `{ orderType, isDefaultFallback: true, isActive: true }`.
+
+7. If neither an exact match nor a fallback is found, reject the request with a descriptive 400 error:
 
 ```text
-zoneRelation = "intra" when pickupZone == dropZone
-zoneRelation = "inter" when pickupZone != dropZone
+"No active rate card configured for route from <Zone A> to <Zone B> for <orderType>"
 ```
 
-6. Find one active rate card by `orderType`, `zoneRelation`, and `isActive: true`.
-7. Calculate base and weight charges:
+8. Calculate base and weight charges:
 
 ```text
 baseCharge = rateCard.baseRate
 weightCharge = billedWeight * rateCard.perKgRate
 ```
 
-8. Calculate COD surcharge only when `paymentType` is `COD`:
+9. Calculate COD surcharge only when `paymentType` is `COD`:
 
 ```text
 codSurcharge = rateCard.codSurchargeFlat
@@ -597,7 +620,7 @@ For prepaid orders:
 codSurcharge = 0
 ```
 
-9. Calculate total:
+10. Calculate total:
 
 ```text
 totalCharge = baseCharge + weightCharge + codSurcharge
@@ -608,12 +631,15 @@ The calculated values are stored on each order:
 ```text
 volumetricWeight
 billedWeight
-zoneRelation
 charge.baseCharge
 charge.weightCharge
 charge.codSurcharge
 charge.totalCharge
 ```
+
+### Why zone-pair pricing?
+
+The previous model used a binary `intra`/`inter` distinction, which charged the same flat rate for all inter-zone deliveries regardless of actual distance. For example, Kanpur→Prayagraj and Kanpur→Bengaluru were priced identically. The zone-pair matrix model allows admins to set independent rates for every `fromZone → toZone` combination, while a single "default fallback" rate card per `orderType` ensures orders never hard-fail on unconfigured routes.
 
 ## Agent Assignment Logic
 

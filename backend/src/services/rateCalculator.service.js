@@ -20,10 +20,25 @@ async function calculateCharge({ dimensions, actualWeight, pickupPincode, dropPi
   // 3. Zone relation
   const zoneRelation = pickupZone._id.equals(dropZone._id) ? 'intra' : 'inter';
 
-  // 4. Rate card lookup
-  const rateCard = await RateCard.findOne({ orderType, zoneRelation, isActive: true });
+  // 4. Rate card lookup (specific zone pair)
+  let rateCard = await RateCard.findOne({
+    orderType,
+    fromZone: pickupZone._id,
+    toZone: dropZone._id,
+    isActive: true,
+  });
+
+  // Fallback to default/fallback rate card if not found
   if (!rateCard) {
-    throw new ApiError(400, 'No active rate card for this combination');
+    rateCard = await RateCard.findOne({
+      orderType,
+      isDefaultFallback: true,
+      isActive: true,
+    });
+  }
+
+  if (!rateCard) {
+    throw new ApiError(400, `No active rate card configured for route from ${pickupZone.name} to ${dropZone.name} for ${orderType}`);
   }
 
   // 5. Charge computation

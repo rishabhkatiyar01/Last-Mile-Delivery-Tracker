@@ -25,6 +25,16 @@ export const createRateCard = async (rateCardData) => {
   return response.data;
 };
 
+export const updateRateCard = async (id, rateCardData) => {
+  const response = await api.put(`/admin/rate-cards/${id}`, rateCardData);
+  return response.data;
+};
+
+export const deleteRateCard = async (id) => {
+  const response = await api.delete(`/admin/rate-cards/${id}`);
+  return response.data;
+};
+
 export const getAgents = async () => {
   const response = await api.get('/admin/agents');
   return response.data;

@@ -136,6 +136,13 @@ function CreateOrderTab() {
   });
 
   const handleQuote = async () => {
+    if (!form.pickupLine.trim() || !form.pickupPincode.trim() ||
+        !form.dropLine.trim() || !form.dropPincode.trim() ||
+        !form.weight.trim() || !form.length.trim() ||
+        !form.width.trim() || !form.height.trim()) {
+      setError('Please fill all the fields');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
@@ -150,6 +157,13 @@ function CreateOrderTab() {
   };
 
   const handleSubmit = async () => {
+    if (!form.pickupLine.trim() || !form.pickupPincode.trim() ||
+        !form.dropLine.trim() || !form.dropPincode.trim() ||
+        !form.weight.trim() || !form.length.trim() ||
+        !form.width.trim() || !form.height.trim()) {
+      setError('Please fill all the fields');
+      return;
+    }
     setError('');
     setSubmitting(true);
     try {
@@ -280,19 +294,19 @@ function CreateOrderTab() {
             <h4 className="text-label-md text-primary/60 uppercase tracking-widest mb-1">Estimated Charge</h4>
             <div className="flex items-baseline gap-1">
               <span className="text-[48px] font-black text-primary">₹</span>
-              <span className="text-[48px] font-black text-primary">{quote?.data?.totalRate || '0.00'}</span>
+              <span className="text-[48px] font-black text-primary">{quote?.data?.charge?.totalCharge != null ? quote.data.charge.totalCharge.toFixed(2) : '0.00'}</span>
             </div>
             {quote?.data && (
               <div className="mt-6 pt-6 border-t border-primary/10 space-y-3">
                 <div className="flex justify-between text-body-sm text-primary/70">
-                  <span>Base Rate</span><span className="font-bold">₹{quote.data.baseRate}</span>
+                  <span>Base Rate</span><span className="font-bold">₹{quote.data.charge.baseCharge}</span>
                 </div>
                 <div className="flex justify-between text-body-sm text-primary/70">
-                  <span>Per Kg Rate (×{quote.data.billedWeight})</span><span className="font-bold">₹{(quote.data.billedWeight * quote.data.perKgRate).toFixed(2)}</span>
+                  <span>Weight-based Charge (Billed Wt: {quote.data.billedWeight} kg)</span><span className="font-bold">₹{quote.data.charge.weightCharge.toFixed(2)}</span>
                 </div>
-                {quote.data.codSurcharge > 0 && (
+                {quote.data.charge.codSurcharge > 0 && (
                   <div className="flex justify-between text-body-sm text-primary/70">
-                    <span>COD Surcharge</span><span className="font-bold">₹{quote.data.codSurcharge}</span>
+                    <span>COD Surcharge</span><span className="font-bold">₹{quote.data.charge.codSurcharge}</span>
                   </div>
                 )}
               </div>

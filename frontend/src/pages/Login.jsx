@@ -124,7 +124,7 @@ export default function Login() {
       {/* Footer */}
       <footer className="w-full bg-primary-container mt-auto">
         <div className="max-w-[1280px] mx-auto px-[40px] py-8 flex justify-center text-on-primary-container/70 text-body-sm">
-          <span>© 2024 Last Mile Infrastructure. All rights reserved.</span>
+          <span>© {new Date().getFullYear()} Last Mile Infrastructure. All rights reserved.</span>
         </div>
       </footer>
     </div>

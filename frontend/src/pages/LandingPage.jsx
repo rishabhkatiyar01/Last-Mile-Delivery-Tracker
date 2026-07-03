@@ -1,7 +1,7 @@
 import { useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import landingImg from '../assets/lastMIleLanding.png';
+import landingImg from '../assets/lastMIleLanding.jpg';
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -177,7 +177,7 @@ export default function LandingPage() {
       <footer className="bg-primary-container text-on-primary-container w-full mt-auto">
         <div className="border-t border-on-primary-container/10 py-8 px-[40px] max-w-[1280px] mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <span className="text-headline-sm font-bold text-accent-lime">Last Mile</span>
-          <p className="text-body-sm opacity-60">© 2024 Last Mile Infrastructure. All rights reserved.</p>
+          <p className="text-body-sm opacity-60">© {new Date().getFullYear()} Last Mile Infrastructure. All rights reserved.</p>
         </div>
       </footer>
     </div>
