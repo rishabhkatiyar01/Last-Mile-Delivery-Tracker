@@ -51,3 +51,37 @@ exports.updateAgentStatus = asyncHandler(async (req, res, next) => {
 
   res.status(200).json({ success: true, data: agent });
 });
+
+exports.createCustomer = asyncHandler(async (req, res, next) => {
+  const { name, email, password, phone, address } = req.body;
+
+  const userExists = await User.findOne({ email });
+  if (userExists) {
+    return next(new ApiError(400, 'User already exists'));
+  }
+
+  const customer = await User.create({
+    name,
+    email,
+    password,
+    phone,
+    address,
+    role: 'customer',
+  });
+
+  res.status(201).json({
+    success: true,
+    data: {
+      id: customer._id,
+      name: customer.name,
+      email: customer.email,
+      role: customer.role,
+      address: customer.address,
+    },
+  });
+});
+
+exports.getCustomers = asyncHandler(async (req, res, next) => {
+  const customers = await User.find({ role: 'customer' }).select('-password');
+  res.status(200).json({ success: true, data: customers });
+});

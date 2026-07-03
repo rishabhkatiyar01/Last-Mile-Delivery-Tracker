@@ -35,9 +35,20 @@ const createAgent = {
   }),
 };
 
+const createCustomer = {
+  body: Joi.object().keys({
+    name: Joi.string().required(),
+    email: Joi.string().email().required(),
+    password: Joi.string().min(6).required(),
+    phone: Joi.string(),
+    address: Joi.string(),
+  }),
+};
+
 module.exports = {
   createZone,
   updateZonePincodes,
   createRateCard,
   createAgent,
+  createCustomer,
 };

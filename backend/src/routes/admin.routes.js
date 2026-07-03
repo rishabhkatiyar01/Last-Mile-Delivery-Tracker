@@ -31,4 +31,8 @@ router.post('/agents', validate(adminSchema.createAgent), adminController.create
 router.get('/agents', adminController.getAgents);
 router.patch('/agents/:id/status', adminController.updateAgentStatus);
 
+// --- Customers ---
+router.post('/customers', validate(adminSchema.createCustomer), adminController.createCustomer);
+router.get('/customers', adminController.getCustomers);
+
 module.exports = router;

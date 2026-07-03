@@ -2,28 +2,39 @@ import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { getTracking, getOrder } from '../api/orders';
 
-const STATUS_STEPS = [
-  { key: 'pending', label: 'Order Placed', desc: 'Order confirmed and being processed', icon: 'inventory_2' },
-  { key: 'picked_up', label: 'Picked Up', desc: 'Parcel collected by LogiSwift courier', icon: 'local_shipping' },
-  { key: 'in_transit', label: 'In Transit', desc: 'Departed from sorting facility', icon: 'moving' },
-  { key: 'out_for_delivery', label: 'Out for Delivery', desc: 'Driver is on the way to your location', icon: 'directions_bike' },
-  { key: 'delivered', label: 'Delivered', desc: 'Package received at destination', icon: 'check_circle' },
-];
-
-function getStepState(stepKey, currentStatus) {
-  const stepIdx = STATUS_STEPS.findIndex((s) => s.key === stepKey);
-  const currentIdx = STATUS_STEPS.findIndex((s) => s.key === currentStatus);
-  if (currentStatus === 'failed') return 'failed';
-  if (stepIdx < currentIdx) return 'done';
-  if (stepIdx === currentIdx) return 'active';
-  return 'pending';
+function StatusBadge({ status }) {
+  const styles = {
+    'CREATED': 'bg-surface-container text-text-muted',
+    'ASSIGNED': 'bg-primary/10 text-primary',
+    'PICKED_UP': 'bg-primary/20 text-primary',
+    'IN_TRANSIT': 'bg-warning-amber/10 text-warning-amber',
+    'OUT_FOR_DELIVERY': 'bg-secondary-container/20 text-on-secondary-container',
+    'DELIVERED': 'bg-success-green/10 text-success-green',
+    'FAILED': 'bg-error/10 text-error',
+    'RESCHEDULED': 'bg-warning-amber/10 text-warning-amber',
+  };
+  const labels = {
+    'CREATED': 'Created',
+    'ASSIGNED': 'Assigned',
+    'PICKED_UP': 'Picked Up',
+    'IN_TRANSIT': 'In Transit',
+    'OUT_FOR_DELIVERY': 'Out for Delivery',
+    'DELIVERED': 'Delivered',
+    'FAILED': 'Failed',
+    'RESCHEDULED': 'Rescheduled',
+  };
+  return (
+    <span className={`px-3 py-1 text-[11px] font-bold rounded-full uppercase tracking-wider ${styles[status] || 'bg-surface-container text-text-muted'}`}>
+      {labels[status] || status}
+    </span>
+  );
 }
 
 export default function TrackOrder() {
   const [searchParams] = useSearchParams();
   const [orderId, setOrderId] = useState(searchParams.get('id') || '');
   const [inputId, setInputId] = useState(searchParams.get('id') || '');
-  const [tracking, setTracking] = useState(null);
+  const [tracking, setTracking] = useState([]);
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -37,18 +48,18 @@ export default function TrackOrder() {
     if (!searchId.trim()) return;
     setError('');
     setLoading(true);
-    setTracking(null);
+    setTracking([]);
     setOrder(null);
     try {
       const [trackRes, orderRes] = await Promise.all([
         getTracking(searchId).catch(() => null),
         getOrder(searchId).catch(() => null),
       ]);
-      if (!orderRes) {
+      if (!orderRes || !orderRes.success) {
         setError('Order not found. Please check your tracking ID.');
       } else {
-        setOrder(orderRes.data || orderRes);
-        setTracking(trackRes?.data || trackRes);
+        setOrder(orderRes.data);
+        setTracking(trackRes?.data || []);
       }
     } catch {
       setError('Order not found. Please check your tracking ID.');
@@ -63,19 +74,19 @@ export default function TrackOrder() {
     handleSearch(inputId);
   };
 
-  const currentStatus = order?.status || 'pending';
+  const currentStatus = order?.currentStatus || 'CREATED';
+
+  // Sort tracking history descending by timestamp
+  const sortedHistory = [...tracking].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   return (
     <div className="bg-background-main font-body-md text-on-surface flex flex-col min-h-screen">
       {/* TopNavBar */}
       <header className="sticky top-0 w-full z-50 bg-background-main shadow-[0px_4px_20px_rgba(10,22,40,0.08)]">
         <nav className="flex justify-between items-center px-[40px] py-4 max-w-[1280px] mx-auto">
-          <Link className="text-headline-md font-black text-primary tracking-tighter" to="/">LOGISWIFT</Link>
+          <Link className="text-headline-md font-black text-primary tracking-tighter" to="/">Last Mile</Link>
           <div className="hidden md:flex items-center space-x-8">
-            <a className="text-primary font-bold border-b-2 border-accent-lime pb-1 text-label-md" href="#">Track</a>
-            <a className="text-text-muted hover:text-secondary transition-colors text-label-md" href="#">Services</a>
-            <a className="text-text-muted hover:text-secondary transition-colors text-label-md" href="#">Fleet</a>
-            <a className="text-text-muted hover:text-secondary transition-colors text-label-md" href="#">Enterprise</a>
+            <Link className="text-primary font-bold border-b-2 border-accent-lime pb-1 text-label-md" to="/track">Track</Link>
           </div>
           <Link to="/login" className="bg-accent-lime text-primary font-bold py-2.5 px-6 rounded-full hover:opacity-90 active:scale-95 transition-all text-label-md shadow-sm">
             Login
@@ -142,16 +153,16 @@ export default function TrackOrder() {
                   <div className="flex items-center mt-4 text-success-green text-label-md">
                     <span className="material-symbols-outlined mr-2" style={{ fontVariationSettings: "'FILL' 1" }}>local_shipping</span>
                     <span>
-                      {currentStatus === 'delivered' ? 'Delivered Successfully' :
-                        currentStatus === 'failed' ? 'Delivery Failed' :
-                          'Out for Delivery Soon'}
+                      {currentStatus === 'DELIVERED' ? 'Delivered Successfully' :
+                        currentStatus === 'FAILED' ? 'Delivery Failed' :
+                          'In Transit'}
                     </span>
                   </div>
                 </div>
                 <div className="flex flex-col md:items-end justify-center border-t md:border-t-0 md:border-l border-outline-variant pt-6 md:pt-0 md:pl-8">
                   <span className="text-text-muted text-label-md uppercase tracking-wider">Destination</span>
-                  <p className="text-headline-md font-bold text-primary mt-1">{order.destinationAddress?.split(',')[0] || '—'}</p>
-                  <p className="text-on-surface-variant text-body-sm">{order.destinationAddress?.split(',').slice(1).join(',') || ''}</p>
+                  <p className="text-headline-md font-bold text-primary mt-1">{order.dropAddress?.line || '—'}</p>
+                  <p className="text-on-surface-variant text-body-sm">Pincode: {order.dropAddress?.pincode || ''}</p>
                 </div>
               </div>
             </section>
@@ -161,66 +172,43 @@ export default function TrackOrder() {
               {/* Timeline */}
               <section className="lg:col-span-7 bg-background-main rounded-[20px] p-8 shadow-[0px_4px_20px_rgba(10,22,40,0.08)]">
                 <h2 className="text-headline-md font-bold mb-10">Shipment Progress</h2>
-                <div className="relative ml-4">
-                  {/* Timeline Line */}
-                  <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-outline-variant">
-                    <div
-                      className="absolute top-0 w-full bg-primary"
-                      style={{
-                        height: `${(STATUS_STEPS.findIndex(s => s.key === currentStatus) / (STATUS_STEPS.length - 1)) * 100}%`
-                      }}
-                    />
-                    {currentStatus !== 'delivered' && currentStatus !== 'failed' && (
-                      <div
-                        className="absolute w-full bg-accent-lime animate-pulse"
-                        style={{
-                          top: `${(STATUS_STEPS.findIndex(s => s.key === currentStatus) / (STATUS_STEPS.length - 1)) * 100}%`,
-                          height: '8%',
-                        }}
-                      />
-                    )}
-                  </div>
-
-                  {[...STATUS_STEPS].reverse().map((step) => {
-                    const state = getStepState(step.key, currentStatus);
-                    const isDone = state === 'done';
-                    const isActive = state === 'active';
-                    const isPending = state === 'pending';
-
-                    // Find tracking event for this step
-                    const events = tracking?.timeline || [];
-                    const event = events.find((e) => e.status === step.key);
-
-                    return (
-                      <div key={step.key} className={`relative flex mb-12 last:mb-0 ${isPending ? 'opacity-40' : ''}`}>
-                        <div className={`z-10 w-8 h-8 rounded-full flex items-center justify-center border-4 border-background-main ${
-                          isActive ? 'bg-accent-lime shadow-[0_0_15px_rgba(196,245,66,0.5)]' :
-                            isDone ? 'bg-primary' :
-                              'bg-outline-variant'
-                        }`}>
-                          <span
-                            className={`material-symbols-outlined text-[16px] ${isActive ? 'text-primary' : 'text-accent-lime'}`}
-                            style={isDone || isActive ? { fontVariationSettings: "'FILL' 1" } : {}}
-                          >
-                            {isDone ? 'check_circle' : isActive ? step.icon : 'check'}
-                          </span>
-                        </div>
-                        <div className="ml-6">
-                          <h3 className="text-label-md text-primary flex items-center gap-2">
-                            {step.label}
-                            {isActive && (
-                              <span className="ml-1 px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-fixed text-[10px] font-bold uppercase">Current</span>
+                {sortedHistory.length === 0 ? (
+                  <p className="text-text-muted text-body-md text-center py-6">No progress logs found.</p>
+                ) : (
+                  <div className="relative ml-4 border-l border-outline-variant">
+                    {sortedHistory.map((event, index) => {
+                      const isLatest = index === 0;
+                      return (
+                        <div key={event._id || index} className="relative pl-8 pb-10 last:pb-0">
+                          {/* Indicator Dot */}
+                          <div className={`absolute -left-[9px] top-1.5 w-4.5 h-4.5 rounded-full border-4 border-background-main ${
+                            isLatest ? 'bg-accent-lime ring-4 ring-accent-lime/30 animate-pulse' : 'bg-primary'
+                          }`} />
+                          
+                          <div>
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <StatusBadge status={event.status} />
+                              {isLatest && (
+                                <span className="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-fixed text-[10px] font-bold uppercase">Latest</span>
+                              )}
+                            </div>
+                            <span className="text-text-muted text-label-sm block mb-1">
+                              {new Date(event.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            {event.note && (
+                              <p className="text-primary font-medium text-body-sm mt-1 bg-surface-container-low p-2 rounded-lg border border-outline-variant/20 italic">
+                                "{event.note}"
+                              </p>
                             )}
-                          </h3>
-                          <p className="text-on-surface-variant text-body-sm">{event?.description || step.desc}</p>
-                          <span className="text-text-muted text-label-sm mt-1 block">
-                            {event?.timestamp ? new Date(event.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                          </span>
+                            <p className="text-text-muted text-[10px] mt-1 uppercase tracking-wide">
+                              Updated by: {event.changedBy?.role || 'System'}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
 
               {/* Sidebar */}
@@ -230,11 +218,10 @@ export default function TrackOrder() {
                   <h4 className="text-label-md text-primary font-bold mb-4">Package Details</h4>
                   <div className="space-y-4">
                     {[
-                      { label: 'Order ID', value: `#${order._id?.slice(-8)}` },
-                      { label: 'Weight', value: `${order.weight || '—'} kg` },
-                      { label: 'Type', value: order.serviceType || 'Standard' },
-                      { label: 'Payment', value: order.paymentMethod?.toUpperCase() || '—' },
-                      { label: 'Status', value: order.status?.replace(/_/g, ' ') || '—' },
+                      { label: 'Weight', value: `${order.actualWeight || '—'} kg` },
+                      { label: 'Type', value: order.orderType || 'Standard' },
+                      { label: 'Payment', value: order.paymentType || '—' },
+                      { label: 'Total Charge', value: `₹${order.charge?.toFixed(2) || '0.00'}` },
                     ].map(({ label, value }) => (
                       <div key={label} className="flex justify-between items-center">
                         <span className="text-on-surface-variant text-body-sm">{label}</span>
@@ -245,31 +232,20 @@ export default function TrackOrder() {
                 </div>
 
                 {/* Agent Info */}
-                {order.agent && (
+                {order.assignedAgent && (
                   <div className="bg-background-main rounded-[20px] p-6 shadow-[0px_4px_20px_rgba(10,22,40,0.08)]">
                     <h4 className="text-label-md text-primary font-bold mb-4">Your Delivery Agent</h4>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full bg-accent-lime flex items-center justify-center text-primary font-black text-lg">
-                          {order.agent?.name?.[0] || 'A'}
-                        </div>
-                        <div>
-                          <p className="text-label-md font-bold text-primary">{order.agent?.name || 'Agent'}</p>
-                          <p className="text-on-surface-variant text-[12px]">Your LogiSwift Runner</p>
-                        </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-accent-lime flex items-center justify-center text-primary font-black text-lg">
+                        {order.assignedAgent.name?.[0] || 'A'}
                       </div>
-                      <button className="bg-primary text-white p-2 rounded-full hover:opacity-90">
-                        <span className="material-symbols-outlined text-[20px]">call</span>
-                      </button>
+                      <div>
+                        <p className="text-label-md font-bold text-primary">{order.assignedAgent.name}</p>
+                        <p className="text-on-surface-variant text-[12px]">{order.assignedAgent.phone || 'Runner Assigned'}</p>
+                      </div>
                     </div>
                   </div>
                 )}
-
-                {/* Support */}
-                <button className="w-full py-4 border-2 border-outline-variant text-primary font-bold rounded-full hover:bg-surface-container transition-colors flex items-center justify-center gap-2">
-                  <span className="material-symbols-outlined">help_center</span>
-                  Need help with this order?
-                </button>
               </aside>
             </div>
           </>
@@ -278,26 +254,8 @@ export default function TrackOrder() {
 
       {/* Footer */}
       <footer className="w-full mt-auto bg-primary-container">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-[24px] px-[40px] py-16 max-w-[1280px] mx-auto">
-          <div className="flex flex-col space-y-4">
-            <div className="text-headline-md font-bold text-accent-lime">LOGISWIFT</div>
-            <p className="text-on-primary-container/70 text-body-sm">Accelerating the infrastructure of the future with intelligent last-mile solutions.</p>
-          </div>
-          {[
-            { title: 'Company', links: ['About Us', 'Careers', 'Press'] },
-            { title: 'Services', links: ['Tracking', 'Returns', 'Support'] },
-            { title: 'Legal', links: ['Privacy', 'Terms'] },
-          ].map((col) => (
-            <div key={col.title} className="flex flex-col space-y-4">
-              <h5 className="text-white font-bold text-label-md">{col.title}</h5>
-              <ul className="space-y-2">
-                {col.links.map((l) => <li key={l}><a className="text-on-primary-container/70 hover:text-accent-lime transition-colors text-body-sm" href="#">{l}</a></li>)}
-              </ul>
-            </div>
-          ))}
-        </div>
-        <div className="px-[40px] py-8 max-w-[1280px] mx-auto border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-on-primary-container/70 text-body-sm">© 2024 LogiSwift Infrastructure. All rights reserved.</p>
+        <div className="px-[40px] py-8 max-w-[1280px] mx-auto flex justify-center items-center">
+          <p className="text-on-primary-container/70 text-body-sm">© 2024 Last Mile Infrastructure. All rights reserved.</p>
         </div>
       </footer>
     </div>

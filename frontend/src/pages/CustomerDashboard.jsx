@@ -1,19 +1,18 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { getQuote, createOrder } from '../api/orders';
+import { getQuote, createOrder, rescheduleOrder, getOrders } from '../api/orders';
 
 function Sidebar({ activeTab, setActiveTab, user, logout }) {
   const tabs = [
     { id: 'create', icon: 'add_circle', label: 'Create Order' },
     { id: 'orders', icon: 'package_2', label: 'My Orders' },
-    { id: 'track', icon: 'distance', label: 'Track Order' },
   ];
 
   return (
     <aside className="hidden md:flex flex-col w-72 bg-surface-dark text-white p-6 sticky top-0 h-screen z-40">
       <div className="mb-12">
-        <h1 className="text-headline-md font-black tracking-tighter text-accent-lime">LOGISWIFT</h1>
+        <Link to="/" className="text-headline-md font-black tracking-tighter text-accent-lime block">Last Mile</Link>
         <p className="text-[10px] uppercase tracking-widest text-on-primary-container/60 mt-1">Customer Portal</p>
       </div>
       <nav className="flex-1 space-y-2">
@@ -56,28 +55,34 @@ function Sidebar({ activeTab, setActiveTab, user, logout }) {
 
 function StatusBadge({ status }) {
   const styles = {
-    'in_transit': 'bg-warning-amber/10 text-warning-amber',
-    'out_for_delivery': 'bg-secondary-container/20 text-on-secondary-container',
-    'delivered': 'bg-success-green/10 text-success-green',
-    'failed': 'bg-error/10 text-error',
-    'pending': 'bg-surface-container text-text-muted',
-    'picked_up': 'bg-primary/10 text-primary',
+    'CREATED': 'bg-surface-container text-text-muted',
+    'ASSIGNED': 'bg-primary/10 text-primary',
+    'PICKED_UP': 'bg-primary/20 text-primary',
+    'IN_TRANSIT': 'bg-warning-amber/10 text-warning-amber',
+    'OUT_FOR_DELIVERY': 'bg-secondary-container/20 text-on-secondary-container',
+    'DELIVERED': 'bg-success-green/10 text-success-green',
+    'FAILED': 'bg-error/10 text-error',
+    'RESCHEDULED': 'bg-warning-amber/10 text-warning-amber',
   };
   const labels = {
-    'in_transit': 'In Transit',
-    'out_for_delivery': 'Out for Delivery',
-    'delivered': 'Delivered',
-    'failed': 'Failed',
-    'pending': 'Pending',
-    'picked_up': 'Picked Up',
+    'CREATED': 'Created',
+    'ASSIGNED': 'Assigned',
+    'PICKED_UP': 'Picked Up',
+    'IN_TRANSIT': 'In Transit',
+    'OUT_FOR_DELIVERY': 'Out for Delivery',
+    'DELIVERED': 'Delivered',
+    'FAILED': 'Failed',
+    'RESCHEDULED': 'Rescheduled',
   };
   const dots = {
-    'in_transit': 'bg-warning-amber animate-pulse',
-    'out_for_delivery': 'bg-secondary-container',
-    'delivered': 'bg-success-green',
-    'failed': 'bg-error',
-    'pending': 'bg-text-muted',
-    'picked_up': 'bg-primary',
+    'CREATED': 'bg-text-muted',
+    'ASSIGNED': 'bg-primary',
+    'PICKED_UP': 'bg-primary animate-pulse',
+    'IN_TRANSIT': 'bg-warning-amber animate-pulse',
+    'OUT_FOR_DELIVERY': 'bg-secondary-container',
+    'DELIVERED': 'bg-success-green',
+    'FAILED': 'bg-error',
+    'RESCHEDULED': 'bg-warning-amber',
   };
   const cls = styles[status] || 'bg-surface-container text-text-muted';
   const dot = dots[status] || 'bg-text-muted';
@@ -91,9 +96,10 @@ function StatusBadge({ status }) {
 
 function CreateOrderTab() {
   const [form, setForm] = useState({
-    pickupAddress: '', destinationAddress: '',
+    pickupLine: '', pickupPincode: '',
+    dropLine: '', dropPincode: '',
     weight: '', length: '', width: '', height: '',
-    serviceType: 'B2B', paymentMethod: 'prepaid',
+    orderType: 'B2C', paymentType: 'Prepaid',
   });
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -103,25 +109,41 @@ function CreateOrderTab() {
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
+  const buildQuotePayload = () => ({
+    pickupPincode: form.pickupPincode,
+    dropPincode: form.dropPincode,
+    dimensions: {
+      l: parseFloat(form.length) || 10,
+      b: parseFloat(form.width) || 10,
+      h: parseFloat(form.height) || 10,
+    },
+    actualWeight: parseFloat(form.weight) || 1,
+    orderType: form.orderType,
+    paymentType: form.paymentType,
+  });
+
+  const buildCreatePayload = () => ({
+    pickupAddress: { line: form.pickupLine, pincode: form.pickupPincode, lat: 28.6139, lng: 77.2090 }, // Mocked lat/lng for now
+    dropAddress: { line: form.dropLine, pincode: form.dropPincode, lat: 28.6250, lng: 77.2200 },
+    dimensions: {
+      l: parseFloat(form.length) || 10,
+      b: parseFloat(form.width) || 10,
+      h: parseFloat(form.height) || 10,
+    },
+    actualWeight: parseFloat(form.weight) || 1,
+    orderType: form.orderType,
+    paymentType: form.paymentType,
+  });
+
   const handleQuote = async () => {
     setError('');
     setLoading(true);
     try {
-      const data = await getQuote({
-        pickupAddress: form.pickupAddress,
-        destinationAddress: form.destinationAddress,
-        weight: parseFloat(form.weight) || 1,
-        length: parseFloat(form.length) || 10,
-        width: parseFloat(form.width) || 10,
-        height: parseFloat(form.height) || 10,
-      });
+      const data = await getQuote(buildQuotePayload());
       setQuote(data);
     } catch (err) {
-      // Fallback: show local estimate
-      const base = 25;
-      const vol = ((parseFloat(form.length)||10) * (parseFloat(form.width)||10) * (parseFloat(form.height)||10)) / 5000;
-      const wt = parseFloat(form.weight) || 1;
-      setQuote({ estimatedCost: (base + vol * 1.5 + wt * 2.2).toFixed(2) });
+      setError(err?.response?.data?.message || 'Failed to get quote (check if zone/rate card exists for these pincodes).');
+      setQuote(null);
     } finally {
       setLoading(false);
     }
@@ -131,32 +153,15 @@ function CreateOrderTab() {
     setError('');
     setSubmitting(true);
     try {
-      const order = await createOrder({
-        pickupAddress: form.pickupAddress,
-        destinationAddress: form.destinationAddress,
-        weight: parseFloat(form.weight) || 1,
-        length: parseFloat(form.length) || 10,
-        width: parseFloat(form.width) || 10,
-        height: parseFloat(form.height) || 10,
-        serviceType: form.serviceType,
-        paymentMethod: form.paymentMethod,
-      });
+      const order = await createOrder(buildCreatePayload());
       setSuccess(order);
       setQuote(null);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Failed to create order. Please try again.');
+      setError(err?.response?.data?.message || 'Failed to create order.');
     } finally {
       setSubmitting(false);
     }
   };
-
-  const liveCharge = (() => {
-    const base = 25;
-    const vol = ((parseFloat(form.length)||0) * (parseFloat(form.width)||0) * (parseFloat(form.height)||0)) / 5000;
-    const wt = parseFloat(form.weight) || 0;
-    if (!wt && !parseFloat(form.length)) return '0.00';
-    return (base + vol * 1.5 + wt * 2.2).toFixed(2);
-  })();
 
   if (success) {
     return (
@@ -188,13 +193,13 @@ function CreateOrderTab() {
             {/* Toggles */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex flex-col gap-3">
-                <label className="text-label-md text-primary uppercase tracking-wider">Service Type</label>
+                <label className="text-label-md text-primary uppercase tracking-wider">Order Type</label>
                 <div className="bg-surface-container rounded-full p-1 flex">
                   {['B2B', 'B2C'].map((v) => (
                     <button
                       key={v}
-                      onClick={() => setForm({ ...form, serviceType: v })}
-                      className={`flex-1 py-2 px-4 rounded-full text-label-md transition-all ${form.serviceType === v ? 'bg-primary text-white' : 'text-text-muted hover:text-primary'}`}
+                      onClick={() => setForm({ ...form, orderType: v })}
+                      className={`flex-1 py-2 px-4 rounded-full text-label-md transition-all ${form.orderType === v ? 'bg-primary text-white' : 'text-text-muted hover:text-primary'}`}
                     >
                       {v}
                     </button>
@@ -204,13 +209,13 @@ function CreateOrderTab() {
               <div className="flex flex-col gap-3">
                 <label className="text-label-md text-primary uppercase tracking-wider">Payment Method</label>
                 <div className="bg-surface-container rounded-full p-1 flex">
-                  {['prepaid', 'cod'].map((v) => (
+                  {['Prepaid', 'COD'].map((v) => (
                     <button
                       key={v}
-                      onClick={() => setForm({ ...form, paymentMethod: v })}
-                      className={`flex-1 py-2 px-4 rounded-full text-label-md capitalize transition-all ${form.paymentMethod === v ? 'bg-primary text-white' : 'text-text-muted hover:text-primary'}`}
+                      onClick={() => setForm({ ...form, paymentType: v })}
+                      className={`flex-1 py-2 px-4 rounded-full text-label-md transition-all ${form.paymentType === v ? 'bg-primary text-white' : 'text-text-muted hover:text-primary'}`}
                     >
-                      {v.toUpperCase()}
+                      {v}
                     </button>
                   ))}
                 </div>
@@ -219,13 +224,15 @@ function CreateOrderTab() {
 
             {/* Addresses */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-label-md text-primary">Pickup Address</label>
-                <input name="pickupAddress" value={form.pickupAddress} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-accent-lime focus:border-accent-lime outline-none transition-all text-body-md" placeholder="Street name, Warehouse #..." />
+              <div className="space-y-4">
+                <label className="text-label-md text-primary">Pickup Details</label>
+                <input name="pickupLine" value={form.pickupLine} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-accent-lime outline-none transition-all text-body-md" placeholder="Pickup Address Line..." />
+                <input name="pickupPincode" value={form.pickupPincode} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-accent-lime outline-none transition-all text-body-md" placeholder="Pickup Pincode (e.g. 110001)" />
               </div>
-              <div className="space-y-2">
-                <label className="text-label-md text-primary">Destination Address</label>
-                <input name="destinationAddress" value={form.destinationAddress} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-accent-lime focus:border-accent-lime outline-none transition-all text-body-md" placeholder="City, Zip Code, Unit..." />
+              <div className="space-y-4">
+                <label className="text-label-md text-primary">Destination Details</label>
+                <input name="dropLine" value={form.dropLine} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-accent-lime outline-none transition-all text-body-md" placeholder="Drop Address Line..." />
+                <input name="dropPincode" value={form.dropPincode} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-accent-lime outline-none transition-all text-body-md" placeholder="Drop Pincode (e.g. 110003)" />
               </div>
             </div>
 
@@ -235,18 +242,13 @@ function CreateOrderTab() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                   { key: 'length', placeholder: 'L (cm)' },
-                  { key: 'width', placeholder: 'W (cm)' },
+                  { key: 'width', placeholder: 'B (cm)' },
                   { key: 'height', placeholder: 'H (cm)' },
                   { key: 'weight', placeholder: 'Wt (kg)' },
                 ].map(({ key, placeholder }) => (
                   <input
-                    key={key}
-                    name={key}
-                    value={form[key]}
-                    onChange={handleChange}
-                    type="number"
-                    placeholder={placeholder}
-                    className="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-accent-lime focus:border-accent-lime outline-none transition-all text-body-md"
+                    key={key} name={key} value={form[key]} onChange={handleChange} type="number" placeholder={placeholder}
+                    className="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-accent-lime outline-none transition-all text-body-md"
                   />
                 ))}
               </div>
@@ -254,59 +256,51 @@ function CreateOrderTab() {
 
             <div className="flex flex-col sm:flex-row gap-4">
               <button
-                onClick={handleQuote}
-                disabled={loading}
+                onClick={handleQuote} disabled={loading}
                 className="flex-1 py-4 border-2 border-primary text-primary rounded-full font-bold hover:bg-surface-container transition-all active:scale-95 disabled:opacity-60"
               >
-                {loading ? 'Getting Quote...' : 'Get Quote'}
+                {loading ? 'Getting Quote...' : '1. Get Quote'}
               </button>
               <button
-                onClick={handleSubmit}
-                disabled={submitting}
+                onClick={handleSubmit} disabled={submitting || !quote?.success}
                 className="flex-1 py-4 bg-primary text-white rounded-full font-bold hover:bg-primary/90 transition-all active:scale-95 shadow-lg disabled:opacity-60"
               >
-                {submitting ? 'Placing Order...' : 'Confirm & Generate Order'}
+                {submitting ? 'Placing Order...' : '2. Confirm Order'}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Sidebar */}
+      {/* Sidebar - Quote Viewer */}
       <div className="lg:col-span-1 space-y-6">
         <div className="bg-accent-lime rounded-[20px] p-6 shadow-xl relative overflow-hidden">
           <div className="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-black to-transparent"></div>
           <div className="relative z-10">
             <h4 className="text-label-md text-primary/60 uppercase tracking-widest mb-1">Estimated Charge</h4>
             <div className="flex items-baseline gap-1">
-              <span className="text-[48px] font-black text-primary">$</span>
-              <span className="text-[48px] font-black text-primary">{quote?.estimatedCost || liveCharge}</span>
+              <span className="text-[48px] font-black text-primary">₹</span>
+              <span className="text-[48px] font-black text-primary">{quote?.data?.totalRate || '0.00'}</span>
             </div>
-            {quote && (
+            {quote?.data && (
               <div className="mt-6 pt-6 border-t border-primary/10 space-y-3">
                 <div className="flex justify-between text-body-sm text-primary/70">
-                  <span>Base Delivery</span><span className="font-bold">$25.00</span>
+                  <span>Base Rate</span><span className="font-bold">₹{quote.data.baseRate}</span>
                 </div>
                 <div className="flex justify-between text-body-sm text-primary/70">
-                  <span>Weight Surcharge</span><span className="font-bold">${(parseFloat(form.weight)||0) * 2.2 > 0 ? ((parseFloat(form.weight)||0) * 2.2).toFixed(2) : '0.00'}</span>
+                  <span>Per Kg Rate (×{quote.data.billedWeight})</span><span className="font-bold">₹{(quote.data.billedWeight * quote.data.perKgRate).toFixed(2)}</span>
                 </div>
+                {quote.data.codSurcharge > 0 && (
+                  <div className="flex justify-between text-body-sm text-primary/70">
+                    <span>COD Surcharge</span><span className="font-bold">₹{quote.data.codSurcharge}</span>
+                  </div>
+                )}
               </div>
             )}
             <div className="mt-4 flex items-center gap-2 bg-primary/5 rounded-xl p-3 border border-primary/10">
               <span className="material-symbols-outlined text-primary text-[18px]">info</span>
-              <p className="text-[12px] text-primary/80">Final price may vary based on actual pickup weight.</p>
+              <p className="text-[12px] text-primary/80">Get Quote first to enable Confirm Order.</p>
             </div>
-          </div>
-        </div>
-
-        <div className="bg-surface-dark rounded-[20px] p-6 text-white relative min-h-[160px] flex items-center justify-center overflow-hidden">
-          <div className="text-center z-10">
-            <p className="text-label-md text-accent-lime mb-2">Fleet Availability</p>
-            <p className="text-headline-md font-bold">High (94%)</p>
-            <p className="text-body-sm text-on-primary-container/60 mt-1">Expected pickup: 24 mins</p>
-          </div>
-          <div className="absolute -right-4 -bottom-4 opacity-10">
-            <span className="material-symbols-outlined text-[120px] text-accent-lime">local_shipping</span>
           </div>
         </div>
       </div>
@@ -330,7 +324,7 @@ export default function CustomerDashboard() {
 
       {/* Mobile Header */}
       <header className="md:hidden flex items-center justify-between px-6 py-4 bg-surface-dark text-white sticky top-0 z-50">
-        <h1 className="text-headline-md font-black tracking-tighter text-accent-lime">LOGISWIFT</h1>
+        <h1 className="text-headline-md font-black tracking-tighter text-accent-lime">Last Mile</h1>
         <button className="material-symbols-outlined text-white">menu</button>
       </header>
 
@@ -355,39 +349,42 @@ export default function CustomerDashboard() {
 
         {activeTab === 'create' && <CreateOrderTab />}
         {activeTab === 'orders' && <OrdersTab />}
-        {activeTab === 'track' && (
-          <div className="flex flex-col items-center justify-center py-16 gap-4">
-            <span className="material-symbols-outlined text-6xl text-accent-lime">distance</span>
-            <h3 className="text-headline-md font-bold text-primary">Track Your Orders</h3>
-            <p className="text-text-muted text-body-md">Use the public tracking page to get real-time updates.</p>
-            <Link to="/track" className="bg-primary text-white font-bold py-3 px-8 rounded-full hover:opacity-90 transition-all">
-              Go to Track Order
-            </Link>
-          </div>
-        )}
       </main>
     </div>
   );
 }
-
-import { useEffect } from 'react';
-import { getOrders } from '../api/orders';
 
 function OrdersTab() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
+  const loadOrders = () => {
     getOrders()
       .then((data) => setOrders(data.data || []))
       .catch(() => setOrders([]))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadOrders();
   }, []);
+
+  const handleReschedule = async (orderId) => {
+    const dateInput = prompt('Enter rescheduling date (YYYY-MM-DD):', new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+    if (!dateInput) return;
+    try {
+      await rescheduleOrder(orderId, { rescheduledDate: new Date(dateInput).toISOString() });
+      alert('Order rescheduled successfully!');
+      loadOrders();
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Failed to reschedule order.');
+    }
+  };
 
   const filtered = orders.filter((o) =>
     o._id?.toLowerCase().includes(search.toLowerCase()) ||
-    o.destinationAddress?.toLowerCase().includes(search.toLowerCase())
+    o.dropAddress?.line?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -436,17 +433,27 @@ function OrdersTab() {
                   <td className="px-8 py-5"><span className="text-label-md text-primary font-bold">#{order._id?.slice(-6)}</span></td>
                   <td className="px-6 py-5">
                     <div className="flex flex-col">
-                      <span className="text-body-md text-primary">{order.destinationAddress?.split(',')[0] || '—'}</span>
-                      <span className="text-[12px] text-text-muted">{order.destinationAddress?.split(',')[1] || ''}</span>
+                      <span className="text-body-md text-primary">{order.dropAddress?.line || '—'}</span>
+                      <span className="text-[12px] text-text-muted">Pincode: {order.dropAddress?.pincode || ''}</span>
                     </div>
                   </td>
                   <td className="px-6 py-5"><span className="text-body-sm text-primary">{new Date(order.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></td>
-                  <td className="px-6 py-5"><span className="px-3 py-1 rounded-full bg-surface-container text-primary text-[11px] uppercase font-bold">{order.serviceType || 'B2C'}</span></td>
-                  <td className="px-6 py-5"><StatusBadge status={order.status} /></td>
+                  <td className="px-6 py-5"><span className="px-3 py-1 rounded-full bg-surface-container text-primary text-[11px] uppercase font-bold">{order.orderType || 'B2C'}</span></td>
+                  <td className="px-6 py-5"><StatusBadge status={order.currentStatus} /></td>
                   <td className="px-8 py-5 text-right">
-                    <Link to={`/track?id=${order._id}`} className="text-primary hover:text-accent-lime transition-colors">
-                      <span className="material-symbols-outlined">visibility</span>
-                    </Link>
+                    <div className="flex gap-2 justify-end items-center">
+                      <Link to={`/orders/${order._id}`} className="text-primary hover:text-accent-lime transition-colors">
+                        <span className="material-symbols-outlined">visibility</span>
+                      </Link>
+                      {order.currentStatus === 'FAILED' && (
+                        <button
+                          onClick={() => handleReschedule(order._id)}
+                          className="px-3 py-1 bg-accent-lime text-primary rounded-full font-bold text-label-sm"
+                        >
+                          Reschedule
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

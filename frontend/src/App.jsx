@@ -4,16 +4,16 @@ import { AuthContext } from './context/AuthContext';
 
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
+import Signup from './pages/Signup';
 import CustomerDashboard from './pages/CustomerDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import AgentDashboard from './pages/AgentDashboard';
-import TrackOrder from './pages/TrackOrder';
-import CreateOrder from './pages/CreateOrder';
+import OrderDetail from './pages/OrderDetail';
 
 function PrivateRoute({ children, allowedRoles }) {
   const { user, loading } = useContext(AuthContext);
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-accent-lime"></div></div>;
 
   if (!user) {
     return <Navigate to="/login" replace />;
@@ -32,17 +32,12 @@ function App() {
       {/* Public Routes */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/track" element={<TrackOrder />} />
+      <Route path="/signup" element={<Signup />} />
 
       {/* Customer Routes */}
       <Route path="/customer" element={
         <PrivateRoute allowedRoles={['customer']}>
           <CustomerDashboard />
-        </PrivateRoute>
-      } />
-      <Route path="/create-order" element={
-        <PrivateRoute allowedRoles={['customer']}>
-          <CreateOrder />
         </PrivateRoute>
       } />
 
@@ -57,6 +52,13 @@ function App() {
       <Route path="/admin" element={
         <PrivateRoute allowedRoles={['admin']}>
           <AdminDashboard />
+        </PrivateRoute>
+      } />
+
+      {/* Order Detail — accessible by customer (owner), agent (assigned), admin */}
+      <Route path="/orders/:orderId" element={
+        <PrivateRoute allowedRoles={['customer', 'agent', 'admin']}>
+          <OrderDetail />
         </PrivateRoute>
       } />
     </Routes>

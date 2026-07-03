@@ -1,7 +1,7 @@
 import api from './index';
 
-export const getOrders = async () => {
-  const response = await api.get('/orders');
+export const getOrders = async (params) => {
+  const response = await api.get('/orders', { params });
   return response.data;
 };
 
@@ -32,5 +32,20 @@ export const updateStatus = async (id, statusData) => {
 
 export const assignAgent = async (id, agentId) => {
   const response = await api.patch(`/orders/${id}/assign`, { agentId });
+  return response.data;
+};
+
+export const autoAssignAgent = async (id) => {
+  const response = await api.post(`/orders/${id}/auto-assign`);
+  return response.data;
+};
+
+export const overrideStatus = async (id, overrideData) => {
+  const response = await api.patch(`/orders/${id}/override-status`, overrideData);
+  return response.data;
+};
+
+export const rescheduleOrder = async (id, rescheduleData) => {
+  const response = await api.post(`/orders/${id}/reschedule`, rescheduleData);
   return response.data;
 };
